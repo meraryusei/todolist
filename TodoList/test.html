@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Todoリスト</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f9f9f9; margin:20px; color:#000; transition: background 0.3s, color 0.3s; }
+    h1 { text-align:center; }
+    .todo-app { max-width:600px; margin:0 auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.2); transition: background 0.3s, color 0.3s; }
+    .controls { display:flex; gap:5px; margin-bottom:10px; flex-wrap:wrap; }
+    .controls input, .controls select, .controls button { padding:8px; border:1px solid #ccc; border-radius:5px; }
+    #search { flex:1; }
+    ul { list-style:none; padding:0; }
+    li { display:flex; align-items:center; justify-content:space-between; background:#fafafa; margin-bottom:5px; padding:8px; border-radius:5px; cursor:grab; transition: background 0.3s, color 0.3s; }
+    li.dragging { opacity:0.5; }
+    .task-text.completed { text-decoration: line-through; color:gray; }
+    .deadline { margin-left:10px; font-size:0.9em; }
+    .priority-high { color:red; font-weight:bold; }
+    .priority-medium { color:orange; }
+    .priority-low { color:green; }
+    .actions button { margin-left:5px; }
+    table { width:100%; border-collapse:collapse; margin-top:20px; }
+    th, td { border:1px solid #ccc; padding:8px; text-align:left; }
+    .empty { text-align:center; color:#aaa; }
+
+    /* 🌙 ダークモード */
+    body.dark-mode { background:#121212; color:#f5f5f5; }
+    body.dark-mode .todo-app { background:#1e1e1e; color:#f5f5f5; }
+    body.dark-mode li { background:#2a2a2a; }
+    body.dark-mode input, body.dark-mode select, body.dark-mode button { background:#333; color:#f5f5f5; border:1px solid #555; }
+    body.dark-mode table, body.dark-mode th, body.dark-mode td { border:1px solid #555; }
+  </style>
+</head>
+<body>
+  <h1>Todoリスト</h1>
+  <div class="todo-app">
+    <div class="controls">
+      <input type="text" id="taskInput" placeholder="タスクを入力">
+      <input type="date" id="deadlineInput">
+      <select id="priorityInput">
+        <option value="low">低</option>
+        <option value="medium">中</option>
+        <option value="high">高</option>
+      </select>
+      <button id="addBtn">追加</button>
+    </div>
+    <div class="controls">
+      <input type="text" id="search" placeholder="検索...">
+      <button id="toggleMode">🌙/☀️</button>
+    </div>
+    <ul id="taskList"></ul>
+    <div id="count"></div>
+    <div class="controls">
+      <button id="clearCompleted">完了をすべて削除</button>
+      <button id="showTable">一覧表に移す</button>
+    </div>
+    <div id="tableContainer"></div>
+  </div>
+
+  <script>
+    let tasks = JSON.parse(localStorage.getItem('tasks')||'[]');
+    const listEl = document.getElementById('taskList');
+    const inputEl = document.getElementById('taskInput');
+    const deadlineEl = document.getElementById('deadlineInput');
+    const priorityEl = document.getElementById('priorityInput');
+    const addBtn = document.getElementById('addBtn');
+    const countEl = document.getElementById('count');
+    const clearBtn = document.getElementById('clearCompleted');
+    const showTableBtn = document.getElementById('showTable');
+    const tableContainer = document.getElementById('tableContainer');
+    const searchEl = document.getElementById('search');
+    const toggleModeBtn = document.getElementById('toggleMode');
+
+    let filter = 'all';
+    let searchKeyword = '';
+
+    function save(){ localStorage.setItem('tasks', JSON.stringify(tasks)); }
+
+    function render(){
+      listEl.innerHTML = '';
+      const visible = tasks.filter(t => {
+        if(filter==='active' && t.completed) return false;
+        if(filter==='completed' && !t.completed) return false;
+        if(searchKeyword && !t.text.toLowerCase().includes(searchKeyword)) return false;
+        return true;
+      });
+
+      if(visible.length===0){
+        listEl.innerHTML = '<div class="empty">タスクがありません。</div>';
+      } else {
+        visible.forEach(task => listEl.appendChild(createTaskElement(task)));
+      }
+
+      const remaining = tasks.filter(t => !t.completed).length;
+      countEl.textContent = `${remaining} 件未完了 / ${tasks.length} 件`;
+    }
+
+    function createTaskElement(task){
+      const li = document.createElement('li');
+      li.draggable = true;
+
+      const span = document.createElement('span');
+      span.textContent = task.text;
+      span.className = 'task-text'+(task.completed? ' completed':'');
+
+      if(task.priority==='high') span.classList.add('priority-high');
+      if(task.priority==='medium') span.classList.add('priority-medium');
+      if(task.priority==='low') span.classList.add('priority-low');
+
+      const deadlineSpan = document.createElement('span');
+      if(task.deadline){
+        deadlineSpan.textContent = `(期限: ${task.deadline})`;
+        deadlineSpan.className = 'deadline';
+        if(new Date(task.deadline) - new Date() < 3*24*60*60*1000){
+          deadlineSpan.style.color = 'red';
+        }
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.textContent = task.completed ? '未完了' : '完了';
+      toggleBtn.onclick = ()=>{ task.completed=!task.completed; save(); render(); };
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '編集';
+      editBtn.onclick = ()=>{
+        const newText = prompt('編集:', task.text);
+        if(newText){ task.text = newText; save(); render(); }
+      };
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '削除';
+      delBtn.onclick = ()=>{ tasks = tasks.filter(t=>t.id!==task.id); save(); render(); };
+      actions.append(toggleBtn, editBtn, delBtn);
+
+      li.append(span, deadlineSpan, actions);
+
+      li.addEventListener('dragstart', ()=>{
+        li.classList.add('dragging');
+      });
+      li.addEventListener('dragend', ()=>{
+        li.classList.remove('dragging');
+        updateOrder();
+      });
+
+      return li;
+    }
+
+    function updateOrder(){
+      const newOrder = [];
+      listEl.querySelectorAll('li').forEach(li=>{
+        const text = li.querySelector('.task-text').textContent;
+        const task = tasks.find(t=>t.text===text);
+        if(task) newOrder.push(task);
+      });
+      tasks = newOrder;
+      save();
+    }
+
+    listEl.addEventListener('dragover', e=>{
+      e.preventDefault();
+      const dragging = listEl.querySelector('.dragging');
+      const afterElement = getDragAfterElement(listEl, e.clientY);
+      if(afterElement==null){
+        listEl.appendChild(dragging);
+      } else {
+        listEl.insertBefore(dragging, afterElement);
+      }
+    });
+
+    function getDragAfterElement(container, y){
+      const els = [...container.querySelectorAll('li:not(.dragging)')];
+      return els.reduce((closest,child)=>{
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height/2;
+        if(offset<0 && offset>closest.offset){ return {offset:offset, element:child}; }
+        else return closest;
+      }, {offset:Number.NEGATIVE_INFINITY}).element;
+    }
+
+    addBtn.onclick = ()=>{
+      if(!inputEl.value.trim()) return;
+      const newTask = {
+        id: Date.now(),
+        text: inputEl.value.trim(),
+        completed: false,
+        deadline: deadlineEl.value,
+        priority: priorityEl.value
+      };
+      tasks.push(newTask);
+      save();
+      inputEl.value='';
+      deadlineEl.value='';
+      priorityEl.value='low';
+      render();
+    };
+
+    clearBtn.onclick = ()=>{ tasks = tasks.filter(t=>!t.completed); save(); render(); };
+
+    showTableBtn.onclick = ()=>{
+      let html = '<table><tr><th>タスク</th><th>期限</th><th>優先度</th><th>状態</th></tr>';
+      tasks.forEach(t=>{
+        html += `<tr><td>${t.text}</td><td>${t.deadline||''}</td><td>${t.priority}</td><td>${t.completed?'完了':'未完了'}</td></tr>`;
+      });
+      html+='</table>';
+      tableContainer.innerHTML = html;
+    };
+
+    searchEl.addEventListener('input', ()=>{
+      searchKeyword = searchEl.value.toLowerCase();
+      render();
+    });
+
+    // 🌙/☀️ ダークモード切替
+    function applyMode(mode){
+      if(mode==='dark'){
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
+      localStorage.setItem('mode', mode);
+    }
+
+    toggleModeBtn.onclick = ()=>{
+      const current = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
+      applyMode(current==='dark' ? 'light' : 'dark');
+    };
+
+    // 初期モード
+    const savedMode = localStorage.getItem('mode')||'light';
+    applyMode(savedMode);
+
+    render();
+  </script>
+</body>
+</html>
